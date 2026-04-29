@@ -1,27 +1,49 @@
 import * as vscode from 'vscode';
 import {latexSymbols} from './latex';
-import {LatexCompletionItemProvider} from './completion'
+import { LatexCompletionItemProvider } from './completion';
+import { sortedItemsForQuery } from './sort';
 
 const RE_LATEX_NAME = /(\\\S+)/g;
 
-let latexItems: vscode.QuickPickItem[] = [];
-let pickOptions: vscode.QuickPickOptions = {
-    matchOnDescription: true,
-};
-
 export function activate(context: vscode.ExtensionContext) {
 
-    latexItems = [];
-    for (let name in latexSymbols) {
-        latexItems.push({
-            description: name,
-            label: latexSymbols[name],
-        });
-    }
+    const insertion = vscode.commands.registerCommand('unicode-latex.insertMathSymbol', function showQuickPickForLatexSymbols() {
+        /*
+         * Similar to `vscode.window.showQuickPick`,
+         * but in addition to filtering items (based on case-_insensitive_ substring search),
+         * this also dynamically sorts the results based on how closely they case-_sensitively_ match the search query
+         * rather than naively preserving the order in which items were provided when first opening the picker.
+         * (Compared to LaTeX symbol names, other VS Code functionality that uses the picker
+         * presumably doesn't have as strong a need for case-sensitivity.)
+         * Note that the various case-independent equivalence classes, themselves,
+         * are still arranged in the order in which their first entries appeared in `latex.ts`.
+         */
 
-    let insertion = vscode.commands.registerCommand('unicode-latex.insertMathSymbol', () => {
-        vscode.window.showQuickPick(latexItems, pickOptions).then(insertSymbol);
+        const quickPick = vscode.window.createQuickPick();
+        quickPick.matchOnDescription = true;
+
+        // Pre-populate the picker with some symbols visible even before the user starts typing a query,
+        // thus matching the behavior of VS Code's file opener and command palette
+        // (rather than starting with an empty dropdown menu).
+        quickPick.items = sortedItemsForQuery('', latexSymbols);
+
+        quickPick.onDidChangeValue((query: string) => {
+            quickPick.items = sortedItemsForQuery(query, latexSymbols);
+        });
+
+        quickPick.onDidAccept(() => {
+            const item = quickPick.selectedItems[0];
+            quickPick.hide();
+            insertSymbol(item);
+        });
+
+        quickPick.onDidHide(() => {
+            quickPick.dispose();
+        });
+
+        quickPick.show();
     });
+
     let replacement = vscode.commands.registerCommand('unicode-latex.replaceLatexNames', () => {
         replaceWithUnicode(vscode.window.activeTextEditor);
     });
